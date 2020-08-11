@@ -5,7 +5,9 @@ import android.accounts.AccountManager
 import android.app.Activity
 import android.content.Intent
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
+import android.util.Log
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -29,31 +31,41 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
     private var activity: Activity? = null
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        channel = MethodChannel(flutterPluginBinding.getFlutterEngine().getDartExecutor(), "accountManager")
+        channel = MethodChannel(flutterPluginBinding.binaryMessenger, "accountManager")
         channel.setMethodCallHandler(this)
     }
 
     private fun addAccount(call: MethodCall, result: Result) {
         activity?.let {
             val accountName = call.argument<String>(ACCOUNT_NAME)
+            val packageName = call.argument<String>(PACKAGE_NAME)
+            val token = call.argument<String>(ACCOUNT_TOKEN)
+            val accountPlan = call.argument<String>(ACCOUNT_PLAN)
             val accountType = call.argument<String>(ACCOUNT_TYPE)
-            val password = call.argument<String>(PASSWORD)
             val accountManager = AccountManager.get(it)
-            val account = Account(accountName, accountType)
-            val wasAdded = accountManager.addAccountExplicitly(account, password, null)
+            val account = Account(accountName, packageName)
+            val userData = Bundle()
+            userData.putStringArrayList("userData", arrayListOf(accountPlan, accountType))
+            val wasAdded = accountManager.addAccountExplicitly(account, token, userData)
             result.success(wasAdded)
         }
     }
 
     private fun getAccounts(result: Result) {
         activity?.let {
-            val accounts = AccountManager.get(activity).accounts
+            val accounts = AccountManager.get(it).accounts
             val list = mutableListOf<HashMap<String, String>>()
             for (account in accounts) {
-                list.add(hashMapOf(
-                        ACCOUNT_NAME to account.name,
-                        ACCOUNT_TYPE to account.type
-                ))
+                if(account!=null) {
+                    list.add(hashMapOf(
+                            ACCOUNT_NAME to account.name,
+                            PACKAGE_NAME to account.type,
+                            ACCOUNT_TOKEN to AccountManager.get(it).getPassword(account),
+                            ACCOUNT_PLAN to AccountManager.get(it).getUserData(account, "userData")[0].toString(),
+                            ACCOUNT_TYPE to AccountManager.get(it).getUserData(account, "userData")[1].toString()
+
+                    ))
+                }
             }
             result.success(list)
         }
@@ -96,6 +108,7 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
             "addAccount" -> addAccount(call, result)
             "getAccounts" -> getAccounts(result)
             "removeAccount" -> removeAccount(call, result)
+            "peekAccounts" -> peekAccounts(result);
             else -> result.notImplemented()
         }
     }
@@ -147,7 +160,9 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
         private const val REQUEST_CODE = 23
         private const val ACCOUNT_NAME = "account_name"
         private const val ACCOUNT_TYPE = "account_type"
-        private const val PASSWORD = "password"
+        private const val ACCOUNT_TOKEN = "account_token"
+        private const val ACCOUNT_PLAN = "account_plan"
+        private const val PACKAGE_NAME = "package_name"
 
         @Suppress("UNUSED")
         @JvmStatic
