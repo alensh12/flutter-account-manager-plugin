@@ -2,12 +2,15 @@ package com.contedevel.accountmanager
 
 import android.accounts.Account
 import android.accounts.AccountManager
+import android.accounts.AccountManager.PACKAGE_NAME_KEY_LEGACY_NOT_VISIBLE
+import android.accounts.AccountManager.VISIBILITY_VISIBLE
 import android.accounts.AccountManagerCallback
 import android.app.Activity
 import android.app.Activity.RESULT_OK
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Debug
 import android.os.Handler
 import android.text.TextUtils
 import android.util.Log
@@ -41,6 +44,7 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
 
     private fun addAccount(call: MethodCall, result: Result) {
         activity?.let {
+            val wasAdded: Boolean
             val accountName = call.argument<String>(ACCOUNT_NAME)
             val packageName = call.argument<String>(PACKAGE_NAME)
             val token = call.argument<String>(ACCOUNT_TOKEN)
@@ -51,7 +55,18 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
             val userData = Bundle()
             userData.putString("account_plan", accountPlan);
             userData.putString("account_type", accountType);
-            val wasAdded = accountManager.addAccountExplicitly(account, token, userData)
+//            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+//                val hasVisibilty = accountManager.setAccountVisibility(account, "com.my.test_account_manager", VISIBILITY_VISIBLE)
+//                Toast.makeText(it, "HAS VISIBILTY $hasVisibilty ", Toast.LENGTH_LONG).show()
+//            }
+            val map = HashMap<String, Int>()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                map[PACKAGE_NAME_KEY_LEGACY_NOT_VISIBLE] = VISIBILITY_VISIBLE
+                wasAdded = accountManager.addAccountExplicitly(account, token, userData, map)
+            } else {
+                wasAdded = accountManager.addAccountExplicitly(account, token, userData);
+            }
+            Log.e("accountManager", wasAdded.toString())
             accountManager.setAuthToken(account, AUTHTOKEN_TYPE_FULL_ACCESS, token);
             accountManager.setUserData(account, "token_saved", token);
             if (wasAdded) {
@@ -81,12 +96,33 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
                             ACCOUNT_TOKEN to AccountManager.get(it).getPassword(account),
                             ACCOUNT_PLAN to AccountManager.get(it).getUserData(account, "account_plan"),
                             ACCOUNT_TYPE to AccountManager.get(it).getUserData(account, "account_type")
-
                     ))
                 }
             }
             result.success(list)
         }
+    }
+
+    private fun getToken(call: MethodCall, result: Result) {
+        activity?.let {
+            val packageName = call.argument<String>(PACKAGE_NAME)
+            val accountManager = AccountManager.get(it)
+            val availableAccounts = accountManager.getAccountsByType(packageName)
+            if (availableAccounts.isEmpty()) {
+                result.success(null);
+            } else {
+                for (i in availableAccounts.indices) {
+                    val token = accountManager.getUserData(availableAccounts[i], "token_saved");
+                    if (token != null) {
+                        result.success(token);
+                    } else {
+                        result.success(null)
+                    }
+                }
+
+            }
+        }
+
     }
 
     private fun peekAccounts(result: Result) {
@@ -122,7 +158,7 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
         }
     }
 
-    private fun invalidateAuthToken(call: MethodCall,result: Result) {
+    private fun invalidateAuthToken(call: MethodCall, result: Result) {
         activity?.let {
             val packageName = call.argument<String>(PACKAGE_NAME)
             val accountManager = AccountManager.get(it)
@@ -144,7 +180,7 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
         }
     }
 
-    private fun setAuthToken(call: MethodCall,result: Result) {
+    private fun setAuthToken(call: MethodCall, result: Result) {
         activity?.let {
             val packageName = call.argument<String>(PACKAGE_NAME)
             val refreshToken = call.argument<String>(ACCOUNT_REFRESH_TOKEN)
@@ -155,7 +191,7 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
             } else {
                 for (i in availableAccounts.indices) {
                     accountManager.setAuthToken(availableAccounts[i], AUTHTOKEN_TYPE_FULL_ACCESS, refreshToken)
-                    accountManager.setUserData(availableAccounts[i],"token_saved",refreshToken)
+                    accountManager.setUserData(availableAccounts[i], "token_saved", refreshToken)
                     result.success(true)
 
                 }
@@ -170,9 +206,10 @@ class AccountManagerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Pl
             "getAccounts" -> getAccounts(result)
             "removeAccount" -> removeAccount(call, result)
             "peekAccounts" -> peekAccounts(result);
-            "invalidateAuthToken" -> invalidateAuthToken(call,result)
+            "invalidateAuthToken" -> invalidateAuthToken(call, result)
             "getAuthToken" -> getAuthToken(call, result)
-            "setRefreshToken" -> setAuthToken(call,result)
+            "setRefreshToken" -> setAuthToken(call, result)
+            "getToken" -> getToken(call, result);
             else -> result.notImplemented()
         }
     }
